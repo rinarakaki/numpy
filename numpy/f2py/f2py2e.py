@@ -4,15 +4,12 @@
 f2py2e - Fortran to Python C/API generator. 2nd Edition.
          See __usage__ below.
 
-Copyright 1999--2011 Pearu Peterson all rights reserved,
-Pearu Peterson <pearu@cens.ioc.ee>
+Copyright 1999 -- 2011 Pearu Peterson all rights reserved.
+Copyright 2011 -- present NumPy Developers.
 Permission to use, modify, and distribute this software is given under the
 terms of the NumPy License.
 
 NO WARRANTY IS EXPRESSED OR IMPLIED.  USE AT YOUR OWN RISK.
-$Date: 2005/05/06 08:31:19 $
-Pearu Peterson
-
 """
 import sys
 import os
@@ -38,6 +35,7 @@ errmess = sys.stderr.write
 # outmess=sys.stdout.write
 show = pprint.pprint
 outmess = auxfuncs.outmess
+MESON_ONLY_VER = (sys.version_info >= (3, 12))
 
 __usage__ =\
 f"""Usage:
@@ -185,8 +183,9 @@ Extra options (only effective with -c):
 Version:     {f2py_version}
 numpy Version: {numpy_version}
 License:     NumPy license (see LICENSE.txt in the NumPy source code)
-Copyright 1999 - 2011 Pearu Peterson all rights reserved.
-https://web.archive.org/web/20140822061353/http://cens.ioc.ee/projects/f2py2e"""
+Copyright 1999 -- 2011 Pearu Peterson all rights reserved.
+Copyright 2011 -- present NumPy Developers.
+https://numpy.org/doc/stable/f2py/index.html\n"""
 
 
 def scaninputline(inputline):
@@ -542,9 +541,10 @@ def preparse_sysargv():
     sys.argv = [sys.argv[0]] + remaining_argv
 
     backend_key = args.backend
-    if sys.version_info >= (3, 12) and backend_key == 'distutils':
-        outmess("Cannot use distutils backend with Python 3.12, using meson backend instead.\n")
-        backend_key = 'meson'
+    if MESON_ONLY_VER and backend_key == 'distutils':
+        outmess("Cannot use distutils backend with Python>=3.12,"
+                " using meson backend instead.\n")
+        backend_key = "meson"
 
     return {
         "dependencies": args.dependencies or [],
@@ -619,21 +619,27 @@ def run_compile():
     for s in flib_flags:
         v = '--fcompiler='
         if s[:len(v)] == v:
-            from numpy.distutils import fcompiler
-            fcompiler.load_all_fcompiler_classes()
-            allowed_keys = list(fcompiler.fcompiler_class.keys())
-            nv = ov = s[len(v):].lower()
-            if ov not in allowed_keys:
-                vmap = {}  # XXX
-                try:
-                    nv = vmap[ov]
-                except KeyError:
-                    if ov not in vmap.values():
-                        print('Unknown vendor: "%s"' % (s[len(v):]))
-                nv = ov
-            i = flib_flags.index(s)
-            flib_flags[i] = '--fcompiler=' + nv
-            continue
+            if MESON_ONLY_VER or backend_key == 'meson':
+                outmess(
+                    "--fcompiler cannot be used with meson,"
+                    "set compiler with the FC environment variable\n"
+                    )
+            else:
+                from numpy.distutils import fcompiler
+                fcompiler.load_all_fcompiler_classes()
+                allowed_keys = list(fcompiler.fcompiler_class.keys())
+                nv = ov = s[len(v):].lower()
+                if ov not in allowed_keys:
+                    vmap = {}  # XXX
+                    try:
+                        nv = vmap[ov]
+                    except KeyError:
+                        if ov not in vmap.values():
+                            print('Unknown vendor: "%s"' % (s[len(v):]))
+                    nv = ov
+                i = flib_flags.index(s)
+                flib_flags[i] = '--fcompiler=' + nv
+                continue
     for s in del_list:
         i = flib_flags.index(s)
         del flib_flags[i]
@@ -674,7 +680,7 @@ def run_compile():
 
     # Construct wrappers / signatures / things
     if backend_key == 'meson':
-        outmess('Using meson backend\nWill pass --lower to f2py\nSee https://numpy.org/doc/stable/f2py/buildtools/meson.html')
+        outmess('Using meson backend\nWill pass --lower to f2py\nSee https://numpy.org/doc/stable/f2py/buildtools/meson.html\n')
         f2py_flags.append('--lower')
         if pyf_files:
             run_main(f" {' '.join(f2py_flags)} {' '.join(pyf_files)}".split())
@@ -721,8 +727,11 @@ def validate_modulename(pyf_files, modulename='untitled'):
 def main():
     if '--help-link' in sys.argv[1:]:
         sys.argv.remove('--help-link')
-        from numpy.distutils.system_info import show_all
-        show_all()
+        if MESON_ONLY_VER:
+            outmess("Use --dep for meson builds\n")
+        else:
+            from numpy.distutils.system_info import show_all
+            show_all()
         return
 
     if '-c' in sys.argv[1:]:
